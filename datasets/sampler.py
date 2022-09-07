@@ -63,14 +63,14 @@ class DistributedSampler(Sampler):
             indices = list(range(len(self.dataset)))
 
         # add extra samples to make it evenly divisible
-        indices += indices[:(self.total_size - len(indices))]
+        indices += indices[: (self.total_size - len(indices))]
         assert len(indices) == self.total_size
 
         # subsample
         # indices = indices[self.rank:self.total_size:self.num_replicas]
         subsample_num = self.total_size // self.num_replicas
         subsample_begin = subsample_num * self.rank
-        indices = indices[subsample_begin:subsample_begin + subsample_num]
+        indices = indices[subsample_begin : subsample_begin + subsample_num]
         assert len(indices) == self.num_samples
 
         return iter(indices)

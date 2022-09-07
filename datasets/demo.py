@@ -23,7 +23,7 @@ class DemoDataset(Dataset):
         self.max_cashe = 100
 
     def build_list(self):
-        with open(os.path.join(self.datapath, 'fragments.pkl'), 'rb') as f:
+        with open(os.path.join(self.datapath, "fragments.pkl"), "rb") as f:
             metas = pickle.load(f)
 
         return metas
@@ -39,25 +39,27 @@ class DemoDataset(Dataset):
         meta = self.metas[idx]
 
         imgs = []
-        intrinsics_list = meta['intrinsics']
-        extrinsics_list = meta['extrinsics']
+        intrinsics_list = meta["intrinsics"]
+        extrinsics_list = meta["extrinsics"]
         intrinsics = np.stack(intrinsics_list)
         extrinsics = np.stack(extrinsics_list)
 
-        for i, vid in enumerate(meta['image_ids']):
+        for i, vid in enumerate(meta["image_ids"]):
             # load images
             imgs.append(
                 self.read_img(
-                    os.path.join(self.datapath, 'images', '{}.jpg'.format(vid))))
+                    os.path.join(self.datapath, "images", "{}.jpg".format(vid))
+                )
+            )
 
         items = {
-            'imgs': imgs,
-            'intrinsics': intrinsics,
-            'extrinsics': extrinsics,
-            'scene': meta['scene'],
-            'fragment': meta['scene'] + '_' + str(meta['fragment_id']),
-            'epoch': [self.epoch],
-            'vol_origin': np.array([0, 0, 0])
+            "imgs": imgs,
+            "intrinsics": intrinsics,
+            "extrinsics": extrinsics,
+            "scene": meta["scene"],
+            "fragment": meta["scene"] + "_" + str(meta["fragment_id"]),
+            "epoch": [self.epoch],
+            "vol_origin": np.array([0, 0, 0]),
         }
 
         if self.transforms is not None:

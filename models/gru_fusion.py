@@ -38,18 +38,33 @@ class GRUFusion(nn.Module):
         else:
             self.fusion_nets = nn.ModuleList()
             for i, ch in enumerate(ch_in):
-                self.fusion_nets.append(ConvGRU(hidden_dim=ch,
-                                                input_dim=ch,
-                                                pres=1,
-                                                vres=self.cfg.VOXEL_SIZE * 2 ** (self.n_scales - i)))
+                self.fusion_nets.append(
+                    ConvGRU(
+                        hidden_dim=ch,
+                        input_dim=ch,
+                        pres=1,
+                        vres=self.cfg.VOXEL_SIZE * 2 ** (self.n_scales - i),
+                    )
+                )
 
     def reset(self, i):
-        self.global_volume[i] = PointTensor(torch.Tensor([]), torch.Tensor([]).view(0, 3).long()).cuda()
-        self.target_tsdf_volume[i] = PointTensor(torch.Tensor([]), torch.Tensor([]).view(0, 3).long()).cuda()
+        self.global_volume[i] = PointTensor(
+            torch.Tensor([]), torch.Tensor([]).view(0, 3).long()
+        ).cuda()
+        self.target_tsdf_volume[i] = PointTensor(
+            torch.Tensor([]), torch.Tensor([]).view(0, 3).long()
+        ).cuda()
 
-    def convert2dense(self, current_coords, current_values, coords_target_global, tsdf_target, relative_origin,
-                      scale):
-        '''
+    def convert2dense(
+        self,
+        current_coords,
+        current_values,
+        coords_target_global,
+        tsdf_target,
+        relative_origin,
+        scale,
+    ):
+        """
         1. convert sparse feature to dense feature;
         2. combine current feature coordinates and previous coordinates within FBV from global hidden state to get
         new feature coordinates (updated_coords);
@@ -67,60 +82,85 @@ class GRUFusion(nn.Module):
         :return: target_volume: (Tensor), dense target tsdf volume, (DIM_X, DIM_Y, DIM_Z, 1)
         :return: valid: mask: 1 represent in current FBV (N,)
         :return: valid_target: gt mask: 1 represent in current FBV (N,)
-        '''
+        """
         # previous frame
         global_coords = self.global_volume[scale].C
         global_value = self.global_volume[scale].F
         global_tsdf_target = self.target_tsdf_volume[scale].F
         global_coords_target = self.target_tsdf_volume[scale].C
 
-        dim = (torch.Tensor(self.cfg.N_VOX).cuda() // 2 ** (self.cfg.N_LAYER - scale - 1)).int()
+        dim = (
+            torch.Tensor(self.cfg.N_VOX).cuda() // 2 ** (self.cfg.N_LAYER - scale - 1)
+        ).int()
         dim_list = dim.data.cpu().numpy().tolist()
 
         # mask voxels that are out of the FBV
         global_coords = global_coords - relative_origin
         valid = ((global_coords < dim) & (global_coords >= 0)).all(dim=-1)
-        if self.cfg.FUSION.FULL is False:
-            valid_volume = sparse_to_dense_torch(current_coords, 1, dim_list, 0, global_value.device)
-            value = valid_volume[global_coords[valid][:, 0], global_coords[valid][:, 1], global_coords[valid][:, 2]]
-            all_true = valid[valid]
-            all_true[value == 0] = False
-            valid[valid] = all_true
+
         # sparse to dense
-        global_volume = sparse_to_dense_channel(global_coords[valid], global_value[valid], dim_list, self.ch_in[scale],
-                                                self.feat_init, global_value.device)
+        global_volume = sparse_to_dense_channel(
+            global_coords[valid],
+            global_value[valid],
+            dim_list,
+            self.ch_in[scale],
+            self.feat_init,
+            global_value.device,
+        )
 
-        current_volume = sparse_to_dense_channel(current_coords, current_values, dim_list, self.ch_in[scale],
-                                                 self.feat_init, global_value.device)
+        current_volume = sparse_to_dense_channel(
+            current_coords,
+            current_values,
+            dim_list,
+            self.ch_in[scale],
+            self.feat_init,
+            global_value.device,
+        )
 
-        if self.cfg.FUSION.FULL is True:
-            # change the structure of sparsity, combine current coordinates and previous coordinates from global volume
-            if self.direct_substitude:
-                updated_coords = torch.nonzero((global_volume.abs() < 1).any(-1) | (current_volume.abs() < 1).any(-1))
-            else:
-                updated_coords = torch.nonzero((global_volume != 0).any(-1) | (current_volume != 0).any(-1))
+        # change the structure of sparsity, combine current coordinates and previous coordinates from global volume
+        if self.direct_substitude:
+            updated_coords = torch.nonzero(
+                (global_volume.abs() < 1).any(-1) | (current_volume.abs() < 1).any(-1)
+            )
         else:
-            updated_coords = current_coords
+            updated_coords = torch.nonzero(
+                (global_volume != 0).any(-1) | (current_volume != 0).any(-1)
+            )
 
         # fuse ground truth
         if tsdf_target is not None:
             # mask voxels that are out of the FBV
             global_coords_target = global_coords_target - relative_origin
-            valid_target = ((global_coords_target < dim) & (global_coords_target >= 0)).all(dim=-1)
+            valid_target = (
+                (global_coords_target < dim) & (global_coords_target >= 0)
+            ).all(dim=-1)
             # combine current tsdf and global tsdf
-            coords_target = torch.cat([global_coords_target[valid_target], coords_target_global])[:, :3]
-            tsdf_target = torch.cat([global_tsdf_target[valid_target], tsdf_target.unsqueeze(-1)])
+            coords_target = torch.cat(
+                [global_coords_target[valid_target], coords_target_global]
+            )[:, :3]
+            tsdf_target = torch.cat(
+                [global_tsdf_target[valid_target], tsdf_target.unsqueeze(-1)]
+            )
             # sparse to dense
-            target_volume = sparse_to_dense_channel(coords_target, tsdf_target, dim_list, 1, 1,
-                                                    tsdf_target.device)
+            target_volume = sparse_to_dense_channel(
+                coords_target, tsdf_target, dim_list, 1, 1, tsdf_target.device
+            )
         else:
             target_volume = valid_target = None
 
-        return updated_coords, current_volume, global_volume, target_volume, valid, valid_target
+        return (
+            updated_coords,
+            current_volume,
+            global_volume,
+            target_volume,
+            valid,
+            valid_target,
+        )
 
-    def update_map(self, value, coords, target_volume, valid, valid_target,
-                   relative_origin, scale):
-        '''
+    def update_map(
+        self, value, coords, target_volume, valid, valid_target, relative_origin, scale
+    ):
+        """
         Replace Hidden state/tsdf in global Hidden state/tsdf volume by direct substitute corresponding voxels
         :param value: (Tensor) fused feature (N, C)
         :param coords: (Tensor) updated coords (N, 3)
@@ -130,57 +170,68 @@ class GRUFusion(nn.Module):
         :param relative_origin: (Tensor), origin in global volume, (3,)
         :param scale:
         :return:
-        '''
+        """
         # pred
         self.global_volume[scale].F = torch.cat(
-            [self.global_volume[scale].F[valid == False], value])
+            [self.global_volume[scale].F[valid == False], value]
+        )
         coords = coords + relative_origin
-        self.global_volume[scale].C = torch.cat([self.global_volume[scale].C[valid == False], coords])
+        self.global_volume[scale].C = torch.cat(
+            [self.global_volume[scale].C[valid == False], coords]
+        )
 
         # target
         if target_volume is not None:
             target_volume = target_volume.squeeze()
             self.target_tsdf_volume[scale].F = torch.cat(
-                [self.target_tsdf_volume[scale].F[valid_target == False],
-                 target_volume[target_volume.abs() < 1].unsqueeze(-1)])
+                [
+                    self.target_tsdf_volume[scale].F[valid_target == False],
+                    target_volume[target_volume.abs() < 1].unsqueeze(-1),
+                ]
+            )
             target_coords = torch.nonzero(target_volume.abs() < 1) + relative_origin
 
             self.target_tsdf_volume[scale].C = torch.cat(
-                [self.target_tsdf_volume[scale].C[valid_target == False], target_coords])
+                [self.target_tsdf_volume[scale].C[valid_target == False], target_coords]
+            )
 
     def save_mesh(self, scale, outputs, scene):
         if outputs is None:
             outputs = dict()
         if "scene_name" not in outputs:
-            outputs['origin'] = []
-            outputs['scene_tsdf'] = []
-            outputs['scene_name'] = []
+            outputs["origin"] = []
+            outputs["scene_tsdf"] = []
+            outputs["scene_name"] = []
         # only keep the newest result
-        if scene in outputs['scene_name']:
+        if scene in outputs["scene_name"]:
             # delete old
-            idx = outputs['scene_name'].index(scene)
-            del outputs['origin'][idx]
-            del outputs['scene_tsdf'][idx]
-            del outputs['scene_name'][idx]
+            idx = outputs["scene_name"].index(scene)
+            del outputs["origin"][idx]
+            del outputs["scene_tsdf"][idx]
+            del outputs["scene_name"][idx]
 
         # scene name
-        outputs['scene_name'].append(scene)
+        outputs["scene_name"].append(scene)
 
         fuse_coords = self.global_volume[scale].C
         tsdf = self.global_volume[scale].F.squeeze(-1)
         max_c = torch.max(fuse_coords, dim=0)[0][:3]
         min_c = torch.min(fuse_coords, dim=0)[0][:3]
-        outputs['origin'].append(min_c * self.cfg.VOXEL_SIZE * (2 ** (self.cfg.N_LAYER - scale - 1)))
+        outputs["origin"].append(
+            min_c * self.cfg.VOXEL_SIZE * (2 ** (self.cfg.N_LAYER - scale - 1))
+        )
 
         ind_coords = fuse_coords - min_c
         dim_list = (max_c - min_c + 1).int().data.cpu().numpy().tolist()
         tsdf_volume = sparse_to_dense_torch(ind_coords, tsdf, dim_list, 1, tsdf.device)
-        outputs['scene_tsdf'].append(tsdf_volume)
+        outputs["scene_tsdf"].append(tsdf_volume)
 
         return outputs
 
-    def forward(self, coords, values_in, inputs, scale=2, outputs=None, save_mesh=False):
-        '''
+    def forward(
+        self, coords, values_in, inputs, scale=2, outputs=None, save_mesh=False
+    ):
+        """
         :param coords: (Tensor), coordinates of voxels, (N, 4) (4 : Batch ind, x, y, z)
         :param values_in: (Tensor), features/tsdf, (N, C)
         :param inputs: dict: meta data from dataloader
@@ -203,12 +254,12 @@ class GRUFusion(nn.Module):
         :return: values_all: (Tensor), features after gru fusion, (N', C)
         :return: tsdf_target_all: (Tensor), tsdf ground truth, (N', 1)
         :return: occ_target_all: (Tensor), occupancy ground truth, (N', 1)
-        '''
+        """
         if self.global_volume[scale] is not None:
             # delete computational graph to save memory
             self.global_volume[scale] = self.global_volume[scale].detach()
 
-        batch_size = len(inputs['fragment'])
+        batch_size = len(inputs["fragment"])
         interval = 2 ** (self.cfg.N_LAYER - scale - 1)
 
         tsdf_target_all = None
@@ -218,11 +269,15 @@ class GRUFusion(nn.Module):
 
         # ---incremental fusion----
         for i in range(batch_size):
-            scene = inputs['scene'][i]  # scene name
-            global_origin = inputs['vol_origin'][i]  # origin of global volume
-            origin = inputs['vol_origin_partial'][i]  # origin of part volume
+            scene = inputs["scene"][i]  # scene name
+            global_origin = inputs["vol_origin"][i]  # origin of global volume
+            origin = inputs["vol_origin_partial"][i]  # origin of part volume
 
-            if scene != self.scene_name[scale] and self.scene_name[scale] is not None and self.direct_substitude:
+            if (
+                scene != self.scene_name[scale]
+                and self.scene_name[scale] is not None
+                and self.direct_substitude
+            ):
                 outputs = self.save_mesh(scale, outputs, self.scene_name[scale])
 
             # if this fragment is from new scene, we reinitialize backend map
@@ -244,30 +299,41 @@ class GRUFusion(nn.Module):
             coords_b = coords[batch_ind, 1:].long() // interval
             values = values_in[batch_ind]
 
-            if 'occ_list' in inputs.keys():
+            if "occ_list" in inputs.keys():
                 # get partial gt
-                occ_target = inputs['occ_list'][self.cfg.N_LAYER - scale - 1][i]
-                tsdf_target = inputs['tsdf_list'][self.cfg.N_LAYER - scale - 1][i][occ_target]
+                occ_target = inputs["occ_list"][self.cfg.N_LAYER - scale - 1][i]
+                tsdf_target = inputs["tsdf_list"][self.cfg.N_LAYER - scale - 1][i][
+                    occ_target
+                ]
                 coords_target = torch.nonzero(occ_target)
             else:
                 coords_target = tsdf_target = None
 
             # convert to dense: 1. convert sparse feature to dense feature; 2. combine current feature coordinates and
             # previous feature coordinates within FBV from our backend map to get new feature coordinates (updated_coords)
-            updated_coords, current_volume, global_volume, target_volume, valid, valid_target = self.convert2dense(
-                coords_b,
-                values,
-                coords_target,
-                tsdf_target,
-                relative_origin,
-                scale)
+            (
+                updated_coords,
+                current_volume,
+                global_volume,
+                target_volume,
+                valid,
+                valid_target,
+            ) = self.convert2dense(
+                coords_b, values, coords_target, tsdf_target, relative_origin, scale
+            )
 
             # dense to sparse: get features using new feature coordinates (updated_coords)
-            values = current_volume[updated_coords[:, 0], updated_coords[:, 1], updated_coords[:, 2]]
-            global_values = global_volume[updated_coords[:, 0], updated_coords[:, 1], updated_coords[:, 2]]
+            values = current_volume[
+                updated_coords[:, 0], updated_coords[:, 1], updated_coords[:, 2]
+            ]
+            global_values = global_volume[
+                updated_coords[:, 0], updated_coords[:, 1], updated_coords[:, 2]
+            ]
             # get fused gt
             if target_volume is not None:
-                tsdf_target = target_volume[updated_coords[:, 0], updated_coords[:, 1], updated_coords[:, 2]]
+                tsdf_target = target_volume[
+                    updated_coords[:, 0], updated_coords[:, 1], updated_coords[:, 2]
+                ]
                 occ_target = tsdf_target.abs() < 1
             else:
                 tsdf_target = occ_target = None
@@ -275,10 +341,15 @@ class GRUFusion(nn.Module):
             if not self.direct_substitude:
                 # convert to aligned camera coordinate
                 r_coords = updated_coords.detach().clone().float()
-                r_coords = r_coords.permute(1, 0).contiguous().float() * voxel_size + origin.unsqueeze(-1).float()
+                r_coords = (
+                    r_coords.permute(1, 0).contiguous().float() * voxel_size
+                    + origin.unsqueeze(-1).float()
+                )
                 r_coords = torch.cat((r_coords, torch.ones_like(r_coords[:1])), dim=0)
-                r_coords = inputs['world_to_aligned_camera'][i, :3, :] @ r_coords
-                r_coords = torch.cat([r_coords, torch.zeros(1, r_coords.shape[-1]).to(r_coords.device)])
+                r_coords = inputs["world_to_aligned_camera"][i, :3, :] @ r_coords
+                r_coords = torch.cat(
+                    [r_coords, torch.zeros(1, r_coords.shape[-1]).to(r_coords.device)]
+                )
                 r_coords = r_coords.permute(1, 0).contiguous()
 
                 h = PointTensor(global_values, r_coords)
@@ -287,17 +358,35 @@ class GRUFusion(nn.Module):
                 values = self.fusion_nets[scale](h, x)
 
             # feed back to global volume (direct substitute)
-            self.update_map(values, updated_coords, target_volume, valid, valid_target, relative_origin, scale)
+            self.update_map(
+                values,
+                updated_coords,
+                target_volume,
+                valid,
+                valid_target,
+                relative_origin,
+                scale,
+            )
 
             if updated_coords_all is None:
-                updated_coords_all = torch.cat([torch.ones_like(updated_coords[:, :1]) * i, updated_coords * interval],
-                                               dim=1)
+                updated_coords_all = torch.cat(
+                    [
+                        torch.ones_like(updated_coords[:, :1]) * i,
+                        updated_coords * interval,
+                    ],
+                    dim=1,
+                )
                 values_all = values
                 tsdf_target_all = tsdf_target
                 occ_target_all = occ_target
             else:
-                updated_coords = torch.cat([torch.ones_like(updated_coords[:, :1]) * i, updated_coords * interval],
-                                           dim=1)
+                updated_coords = torch.cat(
+                    [
+                        torch.ones_like(updated_coords[:, :1]) * i,
+                        updated_coords * interval,
+                    ],
+                    dim=1,
+                )
                 updated_coords_all = torch.cat([updated_coords_all, updated_coords])
                 values_all = torch.cat([values_all, values])
                 if tsdf_target_all is not None:

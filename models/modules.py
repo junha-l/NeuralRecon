@@ -7,19 +7,17 @@ from torchsparse.utils import *
 
 from ops.torchsparse_utils import *
 
-__all__ = ['SPVCNN', 'SConv3d', 'ConvGRU']
+__all__ = ["SPVCNN", "SConv3d", "ConvGRU"]
 
 
 class BasicConvolutionBlock(nn.Module):
     def __init__(self, inc, outc, ks=3, stride=1, dilation=1):
         super().__init__()
         self.net = nn.Sequential(
-            spnn.Conv3d(inc,
-                        outc,
-                        kernel_size=ks,
-                        dilation=dilation,
-                        stride=stride), spnn.BatchNorm(outc),
-            spnn.ReLU(True))
+            spnn.Conv3d(inc, outc, kernel_size=ks, dilation=dilation, stride=stride),
+            spnn.BatchNorm(outc),
+            spnn.ReLU(True),
+        )
 
     def forward(self, x):
         out = self.net(x)
@@ -30,12 +28,10 @@ class BasicDeconvolutionBlock(nn.Module):
     def __init__(self, inc, outc, ks=3, stride=1):
         super().__init__()
         self.net = nn.Sequential(
-            spnn.Conv3d(inc,
-                        outc,
-                        kernel_size=ks,
-                        stride=stride,
-                        transposed=True), spnn.BatchNorm(outc),
-            spnn.ReLU(True))
+            spnn.Conv3d(inc, outc, kernel_size=ks, stride=stride, transposed=True),
+            spnn.BatchNorm(outc),
+            spnn.ReLU(True),
+        )
 
     def forward(self, x):
         return self.net(x)
@@ -45,23 +41,21 @@ class ResidualBlock(nn.Module):
     def __init__(self, inc, outc, ks=3, stride=1, dilation=1):
         super().__init__()
         self.net = nn.Sequential(
-            spnn.Conv3d(inc,
-                        outc,
-                        kernel_size=ks,
-                        dilation=dilation,
-                        stride=stride), spnn.BatchNorm(outc),
+            spnn.Conv3d(inc, outc, kernel_size=ks, dilation=dilation, stride=stride),
+            spnn.BatchNorm(outc),
             spnn.ReLU(True),
-            spnn.Conv3d(outc,
-                        outc,
-                        kernel_size=ks,
-                        dilation=dilation,
-                        stride=1), spnn.BatchNorm(outc))
+            spnn.Conv3d(outc, outc, kernel_size=ks, dilation=dilation, stride=1),
+            spnn.BatchNorm(outc),
+        )
 
-        self.downsample = nn.Sequential() if (inc == outc and stride == 1) else \
-            nn.Sequential(
+        self.downsample = (
+            nn.Sequential()
+            if (inc == outc and stride == 1)
+            else nn.Sequential(
                 spnn.Conv3d(inc, outc, kernel_size=1, dilation=1, stride=stride),
-                spnn.BatchNorm(outc)
+                spnn.BatchNorm(outc),
             )
+        )
 
         self.relu = spnn.ReLU(True)
 
@@ -74,19 +68,20 @@ class SPVCNN(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
 
-        self.dropout = kwargs['dropout']
+        self.dropout = kwargs["dropout"]
 
-        cr = kwargs.get('cr', 1.0)
+        cr = kwargs.get("cr", 1.0)
         cs = [32, 64, 128, 96, 96]
         cs = [int(cr * x) for x in cs]
 
-        if 'pres' in kwargs and 'vres' in kwargs:
-            self.pres = kwargs['pres']
-            self.vres = kwargs['vres']
+        if "pres" in kwargs and "vres" in kwargs:
+            self.pres = kwargs["pres"]
+            self.vres = kwargs["vres"]
 
         self.stem = nn.Sequential(
-            spnn.Conv3d(kwargs['in_channels'], cs[0], kernel_size=3, stride=1),
-            spnn.BatchNorm(cs[0]), spnn.ReLU(True)
+            spnn.Conv3d(kwargs["in_channels"], cs[0], kernel_size=3, stride=1),
+            spnn.BatchNorm(cs[0]),
+            spnn.ReLU(True),
         )
 
         self.stage1 = nn.Sequential(
@@ -101,36 +96,40 @@ class SPVCNN(nn.Module):
             ResidualBlock(cs[2], cs[2], ks=3, stride=1, dilation=1),
         )
 
-        self.up1 = nn.ModuleList([
-            BasicDeconvolutionBlock(cs[2], cs[3], ks=2, stride=2),
-            nn.Sequential(
-                ResidualBlock(cs[3] + cs[1], cs[3], ks=3, stride=1,
-                              dilation=1),
-                ResidualBlock(cs[3], cs[3], ks=3, stride=1, dilation=1),
-            )
-        ])
+        self.up1 = nn.ModuleList(
+            [
+                BasicDeconvolutionBlock(cs[2], cs[3], ks=2, stride=2),
+                nn.Sequential(
+                    ResidualBlock(cs[3] + cs[1], cs[3], ks=3, stride=1, dilation=1),
+                    ResidualBlock(cs[3], cs[3], ks=3, stride=1, dilation=1),
+                ),
+            ]
+        )
 
-        self.up2 = nn.ModuleList([
-            BasicDeconvolutionBlock(cs[3], cs[4], ks=2, stride=2),
-            nn.Sequential(
-                ResidualBlock(cs[4] + cs[0], cs[4], ks=3, stride=1,
-                              dilation=1),
-                ResidualBlock(cs[4], cs[4], ks=3, stride=1, dilation=1),
-            )
-        ])
+        self.up2 = nn.ModuleList(
+            [
+                BasicDeconvolutionBlock(cs[3], cs[4], ks=2, stride=2),
+                nn.Sequential(
+                    ResidualBlock(cs[4] + cs[0], cs[4], ks=3, stride=1, dilation=1),
+                    ResidualBlock(cs[4], cs[4], ks=3, stride=1, dilation=1),
+                ),
+            ]
+        )
 
-        self.point_transforms = nn.ModuleList([
-            nn.Sequential(
-                nn.Linear(cs[0], cs[2]),
-                nn.BatchNorm1d(cs[2]),
-                nn.ReLU(True),
-            ),
-            nn.Sequential(
-                nn.Linear(cs[2], cs[4]),
-                nn.BatchNorm1d(cs[4]),
-                nn.ReLU(True),
-            )
-        ])
+        self.point_transforms = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(cs[0], cs[2]),
+                    nn.BatchNorm1d(cs[2]),
+                    nn.ReLU(True),
+                ),
+                nn.Sequential(
+                    nn.Linear(cs[2], cs[4]),
+                    nn.BatchNorm1d(cs[4]),
+                    nn.ReLU(True),
+                ),
+            ]
+        )
 
         self.weight_initialization()
 
@@ -176,11 +175,9 @@ class SPVCNN(nn.Module):
 class SConv3d(nn.Module):
     def __init__(self, inc, outc, pres, vres, ks=3, stride=1, dilation=1):
         super().__init__()
-        self.net = spnn.Conv3d(inc,
-                               outc,
-                               kernel_size=ks,
-                               dilation=dilation,
-                               stride=stride)
+        self.net = spnn.Conv3d(
+            inc, outc, kernel_size=ks, dilation=dilation, stride=stride
+        )
         self.point_transforms = nn.Sequential(
             nn.Linear(inc, outc),
         )
@@ -203,12 +200,12 @@ class ConvGRU(nn.Module):
         self.convq = SConv3d(hidden_dim + input_dim, hidden_dim, pres, vres, 3)
 
     def forward(self, h, x):
-        '''
+        """
 
         :param h: PintTensor
         :param x: PintTensor
         :return: h.F: Tensor (N, C)
-        '''
+        """
         hx = PointTensor(torch.cat([h.F, x.F], dim=1), h.C)
 
         z = torch.sigmoid(self.convz(hx).F)
@@ -218,4 +215,3 @@ class ConvGRU(nn.Module):
 
         h.F = (1 - z) * h.F + z * q
         return h.F
-

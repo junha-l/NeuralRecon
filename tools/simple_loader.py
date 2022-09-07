@@ -35,17 +35,30 @@ class ScanNetDataset(torch.utils.data.Dataset):
             dict of meta data and images for a single frame
         """
         id = self.id_list[id]
-        cam_pose = np.loadtxt(os.path.join(self.data_path, self.scene, "pose", str(id) + ".txt"), delimiter=' ')
+        id = f"{id:04d}"
+        cam_pose = np.loadtxt(
+            os.path.join(self.data_path, self.scene, "pose", str(id) + ".txt"),
+            delimiter=" ",
+        )
 
         # Read depth image and camera pose
-        depth_im = cv2.imread(os.path.join(self.data_path, self.scene, "depth", str(id) + ".png"), -1).astype(
-            np.float32)
-        depth_im /= 1000.  # depth is saved in 16-bit PNG in millimeters
+        depth_im = cv2.imread(
+            os.path.join(self.data_path, self.scene, "depth", str(id) + ".png"), -1
+        ).astype(np.float32)
+        depth_im /= 1000.0  # depth is saved in 16-bit PNG in millimeters
         depth_im[depth_im > self.max_depth] = 0
 
         # Read RGB image
-        color_image = cv2.cvtColor(cv2.imread(os.path.join(self.data_path, self.scene, "color", str(id) + ".jpg")),
-                                   cv2.COLOR_BGR2RGB)
-        color_image = cv2.resize(color_image, (depth_im.shape[1], depth_im.shape[0]), interpolation=cv2.INTER_AREA)
+        color_image = cv2.cvtColor(
+            cv2.imread(
+                os.path.join(self.data_path, self.scene, "color", str(id) + ".jpg")
+            ),
+            cv2.COLOR_BGR2RGB,
+        )
+        color_image = cv2.resize(
+            color_image,
+            (depth_im.shape[1], depth_im.shape[0]),
+            interpolation=cv2.INTER_AREA,
+        )
 
         return cam_pose, depth_im, color_image

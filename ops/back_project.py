@@ -3,7 +3,7 @@ from torch.nn.functional import grid_sample
 
 
 def back_project(coords, origin, voxel_size, feats, KRcam):
-    '''
+    """
     Unproject the image fetures to form a 3D (sparse) feature volume
 
     :param coords: coordinates of voxels,
@@ -19,7 +19,7 @@ def back_project(coords, origin, voxel_size, feats, KRcam):
     dim: (num of voxels, c + 1)
     :return: count: number of times each voxel can be seen
     dim: (num of voxels,)
-    '''
+    """
     n_views, bs, c, h, w = feats.shape
 
     feature_volume_all = torch.zeros(coords.shape[0], c + 1).cuda()
@@ -52,7 +52,9 @@ def back_project(coords, origin, voxel_size, feats, KRcam):
 
         feats_batch = feats_batch.view(n_views, c, h, w)
         im_grid = im_grid.view(n_views, 1, -1, 2)
-        features = grid_sample(feats_batch, im_grid, padding_mode='zeros', align_corners=True)
+        features = grid_sample(
+            feats_batch, im_grid, padding_mode="zeros", align_corners=True
+        )
 
         features = features.view(n_views, c, -1)
         mask = mask.view(n_views, -1)
