@@ -22,14 +22,14 @@ class NeuConNet(nn.Module):
         self.n_scales = len(cfg.THRESHOLDS) - 1
 
         ch_in = [
-            80 + 1,          ## MNasNet Level 0 feat (80) + z_axis coord (1)
-            96 + 40 + 2 + 1, ## prev feat (96) + MNasNet Level 1 feat (40) + prev tsdf/occ (2) + z_axis coord (1)  
-            48 + 24 + 2 + 1, ## prev feat (40) + MNasNet Level 2 feat (24) + prev tsdf/occ (2) + z_axis coord (1)  
+            81,  ## MNasNet Level 0 feat (80) + z_axis coord (1)
+            139,  ## prev feat (96) + MNasNet Level 1 feat (40) + prev tsdf/occ (2) + z_axis coord (1)
+            75,  ## prev feat (40) + MNasNet Level 2 feat (24) + prev tsdf/occ (2) + z_axis coord (1)
         ]
-        channels = [96, 48, 24]
+        ch_out = [96, 48, 24]
 
         # GRU Fusion
-        self.gru_fusion = GRUFusion(cfg, channels)
+        self.gru_fusion = GRUFusion(cfg, ch_out)
         # sparse conv & implicit functions
         self.sp_convs = nn.ModuleList()
         self.tsdf_preds = nn.ModuleList()
@@ -46,8 +46,8 @@ class NeuConNet(nn.Module):
                     dropout=self.cfg.SPARSEREG.DROPOUT,
                 )
             )
-            self.tsdf_preds.append(nn.Linear(channels[i], 1))
-            self.occ_preds.append(nn.Linear(channels[i], 1))
+            self.tsdf_preds.append(nn.Linear(ch_out[i], 1))
+            self.occ_preds.append(nn.Linear(ch_out[i], 1))
 
     @torch.no_grad()
     def upsample(self, prev_feat, prev_coords, interval, num=8):
@@ -94,18 +94,12 @@ class NeuConNet(nn.Module):
                 # ----upsample coords----
                 up_feat, up_coords = self.upsample(prev_feat, prev_coords, interval)
 
-            # ----a. back project----
-            feats = torch.stack([feat[scale] for feat in features])
             KRcam = (
                 inputs["proj_matrices"][:, :, scale].permute(1, 0, 2, 3).contiguous()
             )
-            volume, count = back_project(
-                up_coords,
-                inputs["vol_origin_partial"],
-                self.cfg.VOXEL_SIZE,
-                feats,
-                KRcam,
-            )
+
+            # TODO: A. back project----
+            feat, volume = None
 
             # ----concat feature from last stage----
             if i != 0:
@@ -132,24 +126,15 @@ class NeuConNet(nn.Module):
                     .contiguous()
                 )
                 r_coords[batch_ind, 1:] = coords_batch
-            # batch index is in the last position
-            r_coords = r_coords[:, [1, 2, 3, 0]]
 
-            # ----b. sparse conv 3d backbone----
-            point_feat = PointTensor(feat, r_coords)
-            feat = self.sp_convs[i](point_feat)
+            # TODO: B. sparse conv 3d backbone----
+            point_feat, feat = None, None
 
-            # ----c. gru fusion----
-            up_coords, feat, tsdf_target, occ_target = self.gru_fusion(
-                up_coords, feat, inputs, i
-            )
-            grid_mask = torch.ones_like(feat[:, 0]).bool()
-            tsdf = self.tsdf_preds[i](feat)
-            occ = self.occ_preds[i](feat)
+            # TODO: C. gru fusion----
+            up_coords, tsdf, occ = None, None, None, None
 
-            # ------d. define the sparsity for the next stage-----
+            # TODO: D. define the sparsity for the next stage-----
             occupancy = occ.squeeze(1) > self.cfg.THRESHOLDS[i]
-            occupancy[grid_mask == False] = False
 
             # ------define feature and coordinate for the next stage-----
             prev_coords = up_coords[occupancy]

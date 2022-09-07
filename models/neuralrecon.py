@@ -41,21 +41,13 @@ class NeuralRecon(nn.Module):
         outputs = {}
         imgs = torch.unbind(inputs["imgs"], 1)
 
-        # image feature extraction
-        features = [self.backbone2d(self.normalizer(img)) for img in imgs]
+        # TODO: Step 1. image feature extraction
+        features = None
 
-        # coarse-to-fine decoder: SparseConv and GRU Fusion.
-        outputs = self.neucon_net(features, inputs, outputs)
+        # TODO: Step 2. coarse-to-fine decoder: SparseConv and GRU Fusion.
+        outputs = None
 
-        # fuse to global volume.
-        if not self.training and "coords" in outputs.keys():
-            outputs = self.fuse_to_global(
-                outputs["coords"],
-                outputs["tsdf"],
-                inputs,
-                self.n_scales,
-                outputs,
-                save_mesh,
-            )
+        # TODO: Step 3. fuse to global volume.
+        outputs = None
 
         return outputs
