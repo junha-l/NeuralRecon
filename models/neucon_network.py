@@ -134,7 +134,7 @@ class NeuConNet(nn.Module):
             up_coords, tsdf, occ = None, None, None, None
 
             # TODO: D. define the sparsity for the next stage-----
-            occupancy = occ.squeeze(1) > self.cfg.THRESHOLDS[i]
+            occupancy = None
 
             # ------define feature and coordinate for the next stage-----
             prev_coords = up_coords[occupancy]
